@@ -1,5 +1,6 @@
 // RUN: triton-opt %s -split-input-file --tritonamdgpu-accelerate-matmul="gfx-arch=gfx1250" | FileCheck %s --check-prefixes=CHECK,GFX1250
 // RUN: triton-opt %s -split-input-file --tritonamdgpu-accelerate-matmul="gfx-arch=gfx1250-strict" | FileCheck %s --check-prefixes=STRICT
+// RUN: env TRITON_HIP_I8_DOT4_MAX_K=4 triton-opt %s -split-input-file --tritonamdgpu-accelerate-matmul="gfx-arch=gfx1250" | FileCheck %s --check-prefixes=DOT4
 // STRICT-NOT: instrShape = [16, 16, 32]
 // STRICT-NOT: instrShape = [16, 16, 64]
 // STRICT-NOT: instrShape = [16, 16, 128]
@@ -536,6 +537,50 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.targ
     %c = arith.constant dense<0.000000e+00> : tensor<32x32xf32, #blocked>
     %res = tt.dot %a, %b, %c : tensor<32x8xf32, #op0> * tensor<8x32xf32, #op1> -> tensor<32x32xf32, #blocked>
     tt.store %arg2, %res : tensor<32x32x!tt.ptr<f32>, #blocked>
+    tt.return
+  }
+}
+
+// -----
+
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [8, 4], warpsPerCTA = [4, 1], order = [1, 0]}>
+#op0 = #ttg.dot_op<{opIdx = 0, parent = #blocked}>
+#op1 = #ttg.dot_op<{opIdx = 1, parent = #blocked}>
+
+// CHECK{LITERAL}: #mma = #ttg.amd_wmma<{version = 3, isTranspose = true, ctaLayout = {warp = [[0, 1], [1, 0]]}, instrShape = [16, 16, 64]}>
+// CHECK-LABEL: dot_i8_i32_k4
+// DOT4-LABEL: dot_i8_i32_k4
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.target = "hip:gfx1250", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @dot_i8_i32_k4(
+      %a: tensor<64x4xi8, #op0>,
+      %b: tensor<4x64xi8, #op1>,
+      %out: tensor<64x64x!tt.ptr<i32>, #blocked>) {
+    %c = arith.constant dense<0> : tensor<64x64xi32, #blocked>
+    // CHECK: tt.dot {{.*}} -> tensor<64x64xi32, #mma>
+    // DOT4: tt.dot {{.*}} : tensor<64x4xi8, #ttg.dot_op<{opIdx = 0, parent = #blocked}>> * tensor<4x64xi8, #ttg.dot_op<{opIdx = 1, parent = #blocked}>> -> tensor<64x64xi32, #blocked>
+    %d = tt.dot %a, %b, %c : tensor<64x4xi8, #op0> * tensor<4x64xi8, #op1> -> tensor<64x64xi32, #blocked>
+    tt.store %out, %d : tensor<64x64x!tt.ptr<i32>, #blocked>
+    tt.return
+  }
+}
+
+// -----
+
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [8, 4], warpsPerCTA = [4, 1], order = [1, 0]}>
+#op0 = #ttg.dot_op<{opIdx = 0, parent = #blocked}>
+#op1 = #ttg.dot_op<{opIdx = 1, parent = #blocked}>
+
+// DOT4{LITERAL}: #mma = #ttg.amd_wmma<{version = 3, isTranspose = true, ctaLayout = {warp = [[0, 1], [1, 0]]}, instrShape = [16, 16, 64]}>
+// DOT4-LABEL: dot_i8_i32_k8
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.target = "hip:gfx1250", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @dot_i8_i32_k8(
+      %a: tensor<64x8xi8, #op0>,
+      %b: tensor<8x64xi8, #op1>,
+      %out: tensor<64x64x!tt.ptr<i32>, #blocked>) {
+    %c = arith.constant dense<0> : tensor<64x64xi32, #blocked>
+    // DOT4: tt.dot {{.*}} -> tensor<64x64xi32, #mma>
+    %d = tt.dot %a, %b, %c : tensor<64x8xi8, #op0> * tensor<8x64xi8, #op1> -> tensor<64x64xi32, #blocked>
+    tt.store %out, %d : tensor<64x64x!tt.ptr<i32>, #blocked>
     tt.return
   }
 }

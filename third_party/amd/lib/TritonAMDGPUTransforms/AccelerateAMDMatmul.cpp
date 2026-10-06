@@ -15,6 +15,7 @@
 #include "triton/Dialect/TritonGPU/Transforms/LayoutPropagationUtility.h"
 #include "triton/Tools/LayoutUtils.h"
 #include "triton/Tools/LinearLayout.h"
+#include "triton/Tools/Sys/GetEnv.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace tt = mlir::triton;
@@ -1475,6 +1476,16 @@ chooseWmmaInstruction(tt::DotOp dot, OperandTypesVector operandTypes,
       unsupportedFeatures);
 }
 
+// Experimental: i8 x i8 -> i32 dots on gfx1250 with K <= this value are left
+// to the FMA path (v_dot4_i32_iu8) instead of WMMA. 0 disables it.
+static int64_t getI8Dot4MaxK() {
+  std::string value = triton::tools::getStrEnv("TRITON_HIP_I8_DOT4_MAX_K");
+  int64_t maxK = 0;
+  if (StringRef(value).getAsInteger(10, maxK))
+    return 0;
+  return maxK;
+}
+
 class BlockedToWMMA : public OpRewritePattern<tt::DotOp> {
   int wmmaVersion;
   SmallVector<StringRef> unsupportedFeatures;
@@ -1516,6 +1527,11 @@ public:
     if (kDimTensor == 1) {
       return rewriter.notifyMatchFailure(dotOp,
                                          "Skipping WMMA for dot op with K=1");
+    }
+    if (wmmaVersion == 3 && operandTypes[0].isInteger(8) &&
+        kDimTensor <= getI8Dot4MaxK()) {
+      return rewriter.notifyMatchFailure(
+          dotOp, "Skipping WMMA for small-K i8 dot in favor of v_dot4");
     }
     // check shape
     FailureOr<WmmaIntrinsic> wmmaInstr = chooseWmmaInstruction(
