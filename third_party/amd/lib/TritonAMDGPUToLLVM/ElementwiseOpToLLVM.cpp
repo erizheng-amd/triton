@@ -55,6 +55,11 @@ struct PackedArithOpConversion
                                    Location loc) const {
     if (operands.size() < 2 || !(elemTy.isF32() || elemTy.isBF16()))
       return {};
+    if constexpr (std::is_same_v<LLVMOp, LLVM::MaxNumOp> ||
+                  std::is_same_v<LLVMOp, LLVM::MinNumOp>) {
+      if (!elemTy.isBF16())
+        return {};
+    }
 
     SmallVector<Value> packedOperands;
     for (unsigned i = 0, e = operands[0].size(); i < e; ++i)
@@ -516,6 +521,10 @@ void populateElementwiseOpToLLVMPatterns(
     patterns.add<PackedArithOpConversion<arith::AddFOp, LLVM::FAddOp>>(
         typeConverter, axisInfoAnalysis, cdna5Benefit);
     patterns.add<PackedArithOpConversion<arith::MulFOp, LLVM::FMulOp>>(
+        typeConverter, axisInfoAnalysis, cdna5Benefit);
+    patterns.add<PackedArithOpConversion<arith::MaxNumFOp, LLVM::MaxNumOp>>(
+        typeConverter, axisInfoAnalysis, cdna5Benefit);
+    patterns.add<PackedArithOpConversion<arith::MinNumFOp, LLVM::MinNumOp>>(
         typeConverter, axisInfoAnalysis, cdna5Benefit);
     patterns.add<PackedArithOpConversion<math::FmaOp, LLVM::FMAOp>>(
         typeConverter, axisInfoAnalysis, cdna5Benefit);

@@ -727,13 +727,13 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, "ttg.thr
 
   //  CHECK-LABEL: ds_transpose_complex_ll_b8
   tt.func @ds_transpose_complex_ll_b8(%arg0: !ttg.memdesc<128x128xf8E4M3FN, #shared, #smem, mutable>, %arg1: !ttg.memdesc<128x128xf8E4M3FN, #shared, #smem, mutable>, %arg2: !ttg.memdesc<128x128xf8E4M3FN, #shared, #smem, mutable>, %arg3: !tt.ptr<f8E4M3FN> {tt.divisibility = 16 : i32, tt.pointer_range = 32 : i32}) {
-    // CHECK-COUNT-256: llvm.load %{{.*}} : !llvm.ptr<3> -> vector<1xi8>
+    // CHECK-COUNT-256: llvm.load %{{.*}} : !llvm.ptr<3> -> i8
     // CHECK-NOT: llvm.load
     %1 = ttg.local_load %arg0 : !ttg.memdesc<128x128xf8E4M3FN, #shared, #smem, mutable> -> tensor<128x128xf8E4M3FN, #linear_ds_tr_complex_4contig>
     // CHECK-COUNT-32: rocdl.ds.read.tr8.b64 %{{.*}} : <3> -> vector<2xi32>
     // CHECK-NOT: rocdl.ds.read.tr8.b64
     %2 = ttg.local_load %arg1 : !ttg.memdesc<128x128xf8E4M3FN, #shared, #smem, mutable> -> tensor<128x128xf8E4M3FN, #linear_ds_tr_complex_8contig>
-    // CHECK-COUNT-128: llvm.load %{{.*}} : !llvm.ptr<3> -> vector<1xi8>
+    // CHECK-COUNT-128: llvm.load %{{.*}} : !llvm.ptr<3> -> i8
     %3 = ttg.local_load %arg2 : !ttg.memdesc<128x128xf8E4M3FN, #shared, #smem, mutable> -> tensor<128x128xf8E4M3FN, #linear_ds_tr_complex_novec>
 
     %ptr1 = tt.splat %arg3 : !tt.ptr<f8E4M3FN> -> tensor<128x128x!tt.ptr<f8E4M3FN>, #linear_ds_tr_complex_4contig>
@@ -750,7 +750,7 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, "ttg.thr
     // CHECK-COUNT-64: rocdl.ds.read.tr16.b64 %{{.*}} : <3> -> vector<4xf16>
     // CHECK-NOT: rocdl.ds.read.tr16.b64
     %1 = ttg.local_load %arg0 : !ttg.memdesc<128x128xf16, #shared, #smem, mutable> -> tensor<128x128xf16, #linear_ds_tr_complex_4contig>
-    // CHECK-COUNT-256: llvm.load %{{.*}} : !llvm.ptr<3> -> vector<1xf16>
+    // CHECK-COUNT-256: llvm.load %{{.*}} : !llvm.ptr<3> -> f16
     // CHECK-NOT: llvm.load
     %3 = ttg.local_load %arg2 : !ttg.memdesc<128x128xf16, #shared, #smem, mutable> -> tensor<128x128xf16, #linear_ds_tr_complex_novec>
     // CHECK-COUNT-64: rocdl.ds.read.tr16.b64 %{{.*}} : <3> -> vector<4xf16>

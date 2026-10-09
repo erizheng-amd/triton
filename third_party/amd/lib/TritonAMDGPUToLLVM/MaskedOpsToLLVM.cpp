@@ -72,14 +72,22 @@ public:
             << "Multicast with bit width " << vecBits << " is not supported on "
             << targetInfo.getArch() << " falling back to regular load";
       }
-      // Emit a regular load
+      // Emit a regular load. A one-element vector is loaded as a scalar:
+      // InstCombine scalarizes packed arithmetic that consumes <1 x T> loads,
+      // which keeps LLVM from merging adjacent loads and packed ops.
+      auto vecTy = dyn_cast<VectorType>(elemTy);
+      Type loadTy = vecTy && vecTy.getNumElements() == 1
+                        ? vecTy.getElementType()
+                        : elemTy;
       auto load =
-          LLVM::LoadOp::create(rewriter, loadLoc, elemTy, ptr, /*alignment*/ 0,
+          LLVM::LoadOp::create(rewriter, loadLoc, loadTy, ptr, /*alignment*/ 0,
                                volatileFlag, nonTmpFlag);
       if (loadOp.getForceNoAlias()) {
         AMD::addLocalLoadNoAliasScope(load);
       }
-      return load;
+      if (loadTy == elemTy)
+        return load;
+      return b.insert_element(elemTy, b.undef(elemTy), load, b.i32_val(0));
     };
 
     bool useDirectLoad = mlir::matchPattern(mask, mlir::m_One());

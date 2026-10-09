@@ -137,7 +137,7 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 2 : i32, "ttg.thr
   tt.func @partitioned_shared_padded_local_load() -> tensor<16x16xf16, #blocked> {
     // Allocate and then load from partitioned shared memory
     // COMMON: llvm.mlir.addressof @global_smem
-    // COMMON-COUNT-4: llvm.load {{.*}} : !llvm.ptr<3> -> vector<{{[0-9]+}}xf16>
+    // COMMON-COUNT-4: llvm.load {{.*}} : !llvm.ptr<3> -> {{f16|vector<[0-9]+xf16>}}
     %0 = ttg.local_alloc {allocation.offset = [0 : i32, 65536 : i32, 128 : i32, 65664 : i32]} : () -> !ttg.memdesc<16x16xf16, #partitioned, #smem, mutable>
     %1 = ttg.local_load %0 : !ttg.memdesc<16x16xf16, #partitioned, #smem, mutable> -> tensor<16x16xf16, #blocked>
     tt.return %1 : tensor<16x16xf16, #blocked>
@@ -214,6 +214,24 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.thr
     // COMMON: llvm.intr.fma({{.*}}) : (vector<2xbf16>, vector<2xbf16>, vector<2xbf16>) -> vector<2xbf16>
     %0 = math.fma %arg0, %arg1, %arg2 : tensor<64xbf16, #blocked>
     tt.return %0 : tensor<64xbf16, #blocked>
+  }
+
+  // COMMON-LABEL: @bf16_maxnumf_minnumf
+  tt.func @bf16_maxnumf_minnumf(%arg0: tensor<64xbf16, #blocked>, %arg1: tensor<64xbf16, #blocked>) -> tensor<64xbf16, #blocked> {
+    // COMMON: llvm.intr.maxnum({{.*}}) : (vector<2xbf16>, vector<2xbf16>) -> vector<2xbf16>
+    // COMMON: llvm.intr.minnum({{.*}}) : (vector<2xbf16>, vector<2xbf16>) -> vector<2xbf16>
+    %0 = arith.maxnumf %arg0, %arg1 : tensor<64xbf16, #blocked>
+    %1 = arith.minnumf %0, %arg1 : tensor<64xbf16, #blocked>
+    tt.return %1 : tensor<64xbf16, #blocked>
+  }
+
+  // COMMON-LABEL: @f32_maxnumf_not_packed
+  tt.func @f32_maxnumf_not_packed(%arg0: tensor<64xf32, #blocked>, %arg1: tensor<64xf32, #blocked>) -> tensor<64xf32, #blocked> {
+    // COMMON-NOT: vector<2xf32>
+    // COMMON: llvm.intr.maxnum({{.*}}) : (f32, f32) -> f32
+    // COMMON-NOT: vector<2xf32>
+    %0 = arith.maxnumf %arg0, %arg1 : tensor<64xf32, #blocked>
+    tt.return %0 : tensor<64xf32, #blocked>
   }
 }
 
