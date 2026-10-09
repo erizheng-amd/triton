@@ -151,6 +151,13 @@ struct SIToFPOpConversion
     : ElementwiseOpConversionBase<arith::SIToFPOp, SIToFPOpConversion> {
   using ElementwiseOpConversionBase::ElementwiseOpConversionBase;
 
+  explicit SIToFPOpConversion(LLVMTypeConverter &typeConverter,
+                              ModuleAxisInfoAnalysis &axisAnalysisPass,
+                              ISAFamily isaFamily,
+                              PatternBenefit benefit = patternBenefitDefault)
+      : ElementwiseOpConversionBase(typeConverter, axisAnalysisPass, benefit),
+        isaFamily(isaFamily) {}
+
   SmallVector<Value> createDestOps(arith::SIToFPOp op, OpAdaptor adaptor,
                                    ConversionPatternRewriter &rewriter,
                                    Type elemTy, MultipleOperandsRange operands,
@@ -163,6 +170,23 @@ struct SIToFPOpConversion
       auto outVals = S8_to_Bf16(loc, rewriter, inVals);
       assert(outVals.size() == 4);
       return outVals;
+    } else if (outElemTy.isBF16() && (isaFamily == ISAFamily::CDNA4 ||
+                                      isaFamily == ISAFamily::GFX1250)) {
+      // Round through FP32 with v_cvt_pk_bf16_f32, two values at a time.
+      auto b = TritonLLVMOpBuilder(loc, rewriter);
+      auto toF32 = [&](Value v) -> Value {
+        return LLVM::SIToFPOp::create(rewriter, loc, f32_ty, v);
+      };
+      if (operands.size() == 1)
+        return {b.fptrunc(bf16_ty, toF32(operands[0][0]))};
+      auto f32VecTy = vec_ty(f32_ty, 2);
+      Value f32Vec = b.undef(f32VecTy);
+      for (int i = 0; i < 2; ++i)
+        f32Vec = b.insert_element(f32VecTy, f32Vec, toF32(operands[i][0]),
+                                  b.i32_val(i));
+      Value bf16Vec = b.fptrunc(vec_ty(bf16_ty, 2), f32Vec);
+      return {b.extract_element(bf16_ty, bf16Vec, b.i32_val(0)),
+              b.extract_element(bf16_ty, bf16Vec, b.i32_val(1))};
     } else if (outElemTy.isBF16()) {
       auto value =
           LLVM::SIToFPOp::create(rewriter, loc, f32_ty, operands[0][0]);
@@ -171,6 +195,9 @@ struct SIToFPOpConversion
       return {LLVM::SIToFPOp::create(rewriter, loc, elemTy, operands[0][0])};
     }
   }
+
+private:
+  ISAFamily isaFamily;
 };
 
 struct FPToSIOpConversion
@@ -511,7 +538,8 @@ void populateElementwiseOpToLLVMPatterns(
   patterns.add<TruncFOpConversion>(typeConverter, axisInfoAnalysis,
                                    targetInfo.getISAFamily(), benefit);
   patterns.add<FPToSIOpConversion>(typeConverter, axisInfoAnalysis, benefit);
-  patterns.add<SIToFPOpConversion>(typeConverter, axisInfoAnalysis, benefit);
+  patterns.add<SIToFPOpConversion>(typeConverter, axisInfoAnalysis,
+                                   targetInfo.getISAFamily(), benefit);
 
   // ExpOpConversionApprox will try using __ocml_exp2_f32 if the input type is
   // FP32. For other input types, ExpOpConversionApprox will return failure and

@@ -2668,6 +2668,35 @@ def test_cast_bf16_rounding(dtype_x, rounding, device):
     torch.testing.assert_close(z, expected, rtol=0, atol=0, equal_nan=True)
 
 
+@pytest.mark.parametrize("dtype_x", ["int32", "int8"])
+@pytest.mark.parametrize("vals_per_thread", [1, 2, 4])
+def test_cast_int_to_bf16_rounding(dtype_x, vals_per_thread, device):
+    check_type_supported("bfloat16", device)
+
+    @triton.jit
+    def kernel(X, Z, BLOCK: tl.constexpr):
+        offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+        tl.store(Z + offs, tl.load(X + offs).to(tl.bfloat16))
+
+    block = THREADS_PER_WARP * vals_per_thread
+    torch.manual_seed(0)
+    if dtype_x == "int32":
+        x = torch.randint(-2**31, 2**31, (block * 64, ), dtype=torch.int32, device=device)
+        # Ties between BF16 neighbours, values that round twice (int -> fp32 -> bf16),
+        # a carry into the exponent and the extremes.
+        special = [
+            257, 259, 2**24 + 2**16 + 1, 2**24 + 2**16 - 1, 2**24 + 3 * 2**16, 2**25 - 1, 2**31 - 1, -2**31, -257, -259,
+            0, -1
+        ]
+        x[:len(special)] = torch.tensor(special, dtype=torch.int32, device=device)
+    else:
+        x = torch.arange(-128, 128, dtype=torch.int32, device=device).to(torch.int8).repeat(block)
+    z = torch.empty_like(x, dtype=torch.bfloat16)
+    kernel[(x.numel() // block, )](x, z, BLOCK=block, num_warps=1)
+    expected = x.to(torch.float32).to(torch.bfloat16)
+    torch.testing.assert_close(z, expected, rtol=0, atol=0)
+
+
 @pytest.mark.interpreter
 @pytest.mark.parametrize("dtype_x", ["float32", "float16"])
 @pytest.mark.parametrize("dtype_z", ["float8_e5m2", "float8_e4m3fn"])
