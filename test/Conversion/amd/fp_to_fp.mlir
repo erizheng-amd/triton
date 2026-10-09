@@ -314,3 +314,27 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.thr
     tt.return
   }
 }
+
+// -----
+
+#blocked = #ttg.blocked<{sizePerThread = [2], threadsPerWarp = [64], warpsPerCTA = [1], order = [0]}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.threads-per-warp" = 64 : i32} {
+  // COMMON-LABEL: @int_to_bf16
+  // GFX950-NOT: llvm.add
+  // GFX950-COUNT-2: llvm.sitofp {{.*}} : i32 to f32
+  // GFX950: llvm.fptrunc {{.*}} : vector<2xf32> to vector<2xbf16>
+  // GFX950-COUNT-2: llvm.sitofp {{.*}} : i8 to f32
+  // GFX950: llvm.fptrunc {{.*}} : vector<2xf32> to vector<2xbf16>
+  // GFX950: llvm.sitofp {{.*}} : i32 to f32
+  // GFX950: llvm.fptrunc {{.*}} : f32 to bf16
+  // GFX942-NOT: llvm.fptrunc
+  // GFX942: llvm.sitofp {{.*}} : i32 to f32
+  // GFX942: llvm.add
+  // GFX942: llvm.trunc {{.*}} : i32 to i16
+  tt.func @int_to_bf16(%a: tensor<128xi32, #blocked>, %b: tensor<128xi8, #blocked>, %c: i32) -> (tensor<128xbf16, #blocked>, tensor<128xbf16, #blocked>, bf16) {
+    %0 = arith.sitofp %a : tensor<128xi32, #blocked> to tensor<128xbf16, #blocked>
+    %1 = arith.sitofp %b : tensor<128xi8, #blocked> to tensor<128xbf16, #blocked>
+    %2 = arith.sitofp %c : i32 to bf16
+    tt.return %0, %1, %2 : tensor<128xbf16, #blocked>, tensor<128xbf16, #blocked>, bf16
+  }
+}
