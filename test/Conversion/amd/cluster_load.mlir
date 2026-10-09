@@ -186,7 +186,7 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.targ
   tt.func public @scalar_load_gfx1250(%arg0: !tt.ptr<i32> {tt.divisibility = 16 : i32}, %arg1: !tt.ptr<i16> {tt.divisibility = 16 : i32, tt.pointer_range = 32 : i32}, %arg2: !tt.ptr<i32> {tt.divisibility = 16 : i32}) {
     %0 = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
     // Scalar load should produce a regular llvm.load, not a cluster load
-    // CHECK: llvm.load %{{.*}} : !llvm.ptr<1> -> vector<1xi16>
+    // CHECK: llvm.load %{{.*}} : !llvm.ptr<1> -> i16
     %1 = tt.load %arg1 : !tt.ptr<i16>
     %2 = amdg.buffer_load %arg2[%0] : !tt.ptr<i32> -> tensor<128xi32, #blocked>
     %3 = arith.extsi %1 : i16 to i32

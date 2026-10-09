@@ -508,6 +508,27 @@ def test_compile_only_16bit_max_min_no_promotion_gfx1250(dtype, native_op, op):
     assert not re.search(rf"v_{op}_num_f32", asm)
 
 
+@pytest.mark.parametrize("op", ["max", "min"])
+def test_compile_only_bf16_maximum_minimum_paired_gfx1250(op):
+
+    @triton.jit
+    def binop_kernel(src, dst, IS_MAX: tl.constexpr):
+        offs = tl.arange(0, 64)
+        x = tl.load(src + offs)
+        if IS_MAX:
+            y = tl.maximum(x, 1.0)
+        else:
+            y = tl.minimum(x, 1.0)
+        tl.store(dst + offs, y)
+
+    src = ASTSource(fn=binop_kernel, signature={"src": "*bf16", "dst": "*bf16", "IS_MAX": "constexpr"},
+                    constexprs={"IS_MAX": op == "max"})
+    asm = triton.compile(src, target=GPUTarget("hip", "gfx1250", 32), options={"num_warps": 1}).asm["amdgcn"]
+    ops = re.findall(rf"v_pk_{op}_num_bf16 .*", asm)
+    assert len(ops) == 1
+    assert "op_sel:[0,1]" in ops[0]
+
+
 def test_fp8_compiles_for_multiple_architectures_cuda():
     """
     Validate FP8 compilation succeeds for architectures with different

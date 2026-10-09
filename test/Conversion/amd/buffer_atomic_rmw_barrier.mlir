@@ -8,11 +8,11 @@
 module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.target = "hip:gfx1250", "ttg.threads-per-warp" = 32 : i32} {
   // CHECK-LABEL: @buffer_atomic_rmw
   // CHECK-COUNT-3: rocdl.s.barrier
-  // CHECK: llvm.load {{.*}} : !llvm.ptr<3> -> vector<1xi64>
+  // CHECK: llvm.load {{.*}} : !llvm.ptr<3> -> i64
   // CHECK-COUNT-2: rocdl.s.barrier
   // CHECK: llvm.amdgcn.raw.ptr.buffer.atomic.add
   // CHECK: rocdl.s.barrier
-  // CHECK: llvm.load {{.*}} : !llvm.ptr<3> -> vector<1xi64>
+  // CHECK: llvm.load {{.*}} : !llvm.ptr<3> -> i64
   // CHECK-NOT: rocdl.s.barrier
   // CHECK: llvm.return
   tt.func public @buffer_atomic_rmw(%arg0: !tt.ptr<i64>, %arg1: !tt.ptr<i64>) {

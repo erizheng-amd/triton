@@ -2990,6 +2990,38 @@ def test_math_tanh_bf16_compile_amd(target, native, size_per_thread):
         assert "v_tanh_bf16" not in asm
 
 
+@pytest.mark.parametrize("op, instr", [("add", "v_pk_add_bf16"), ("mul", "v_pk_mul_bf16"), ("fma", "v_pk_fma_bf16"),
+                                       ("max", "v_pk_max_num_bf16"), ("min", "v_pk_min_num_bf16")])
+def test_bf16_binop_unaligned_paired_gfx1250(op, instr):
+
+    @gluon.jit
+    def binop_kernel(a_ptr, b_ptr, c_ptr, OP: ttgl.constexpr):
+        layout: ttgl.constexpr = ttgl.BlockedLayout([2], [32], [1], [0])
+        offs = ttgl.arange(0, 64, layout=layout)
+        a = ttgl.load(a_ptr + offs)
+        b = ttgl.load(b_ptr + offs)
+        if OP == "add":
+            c = a + b
+        elif OP == "mul":
+            c = a * b
+        elif OP == "fma":
+            c = ttgl.fma(a, b, a)
+        elif OP == "max":
+            c = ttgl.maximum(a, b)
+        else:
+            c = ttgl.minimum(a, b)
+        ttgl.store(c_ptr + offs, c)
+
+    # No divisibility hints: each thread's two adjacent values are loaded one at a time.
+    source = gluon.GluonASTSource(binop_kernel,
+                                  signature={"a_ptr": "*bf16", "b_ptr": "*bf16", "c_ptr": "*bf16", "OP":
+                                             "constexpr"}, constexprs={"OP": op})
+    compiled = triton.compile(source, target=GPUTarget("hip", "gfx1250", 32), options={"num_warps": 1})
+    asm = compiled.asm["amdgcn"]
+    assert len(re.findall(rf"\b{instr}\b", asm)) == 1
+    assert asm.count("global_load_b32") == 2
+
+
 def test_math_fast_dividef():
 
     @gluon.jit
