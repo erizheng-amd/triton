@@ -462,6 +462,26 @@ def test_fp8_compiles_for_multiple_architectures_hip():
     triton.compile(src, target=GPUTarget("hip", "gfx942", 64))
 
 
+@pytest.mark.parametrize("arch, warp_size, native", [("gfx1250", 32, True), ("gfx950", 64, False),
+                                                     ("gfx942", 64, False)])
+def test_compile_only_tanh_bf16_hip(arch, warp_size, native):
+    from triton.language.extra.hip import libdevice
+
+    @triton.jit
+    def tanh_bf16(src, dst):
+        idx = tl.arange(0, 128)
+        tl.store(dst + idx, libdevice.tanh(tl.load(src + idx)))
+
+    src = ASTSource(fn=tanh_bf16, signature={"src": "*bf16", "dst": "*bf16"}, constexprs={})
+    asm = triton.compile(src, target=GPUTarget("hip", arch, warp_size)).asm["amdgcn"]
+    assert "__triton_hip_tanh_bf16" not in asm
+    if native:
+        assert re.search(r"v_tanh_bf16", asm)
+        assert not re.search(r"v_tanh_f32", asm)
+    else:
+        assert not re.search(r"v_tanh_bf16", asm)
+
+
 def test_fp8_compiles_for_multiple_architectures_cuda():
     """
     Validate FP8 compilation succeeds for architectures with different

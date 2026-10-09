@@ -175,6 +175,25 @@ private:
         replacementOp = LLVM::createLLVMIntrinsicCallOp(
             rewriter, loc, intrinsic, returnType, operands[0]);
       }
+    } else if (calleeName == "__triton_hip_tanh_bf16") {
+      assert(operands.size() == 1);
+      assert(operands[0].getType().isBF16());
+      if (targetInfo.getISAFamily() == triton::amdgpu::ISAFamily::GFX1250) {
+        const char *intrinsic = "llvm.amdgcn.tanh.bf16";
+        replacementOp = LLVM::createLLVMIntrinsicCallOp(
+            rewriter, loc, intrinsic, returnType, operands[0]);
+      } else {
+        // OCML has no BF16 tanh: compute in FP32 and round back to BF16.
+        Type f32Ty = rewriter.getF32Type();
+        Value ext = LLVM::FPExtOp::create(rewriter, loc, f32Ty, operands[0]);
+        auto funcType = LLVM::LLVMFunctionType::get(f32Ty, {f32Ty});
+        LLVM::LLVMFuncOp funcOp = triton::gpu::appendOrGetExternFuncOp(
+            rewriter, callOp, "__ocml_tanh_f32", funcType);
+        Value tanh =
+            LLVM::createLLVMCallOp(rewriter, loc, funcOp, ext).getResult();
+        replacementOp =
+            LLVM::FPTruncOp::create(rewriter, loc, returnType, tanh);
+      }
     }
 
     if (replacementOp) {

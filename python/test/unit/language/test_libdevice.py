@@ -4,6 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
+from triton._internal_testing import is_hip
 from triton.language.extra import libdevice
 from triton.language.extra.libdevice import fast_dividef as my_fast_dividef
 
@@ -39,6 +40,25 @@ def test_bessel(dtype_str, libdevice_fn, torch_special_fn, device):
     kernel[(1, )](x, y_exp, fn=libdevice_fn, SIZE=SIZE, num_warps=4, num_ctas=1)
 
     torch.testing.assert_close(y_ref, y_exp, equal_nan=True)
+
+
+@pytest.mark.skipif(not is_hip(), reason="BF16 libdevice.tanh is only provided by the HIP backend")
+def test_tanh_bf16_all_values(device):
+
+    @triton.jit
+    def kernel(in_p, out_p, BLOCK: tl.constexpr):
+        off = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+        tl.store(out_p + off, libdevice.tanh(tl.load(in_p + off)))
+
+    # Every BF16 bit pattern, including zeros, subnormals, infinities and NaNs.
+    x = torch.arange(-2**15, 2**15, dtype=torch.int32, device=device).to(torch.int16).view(torch.bfloat16)
+    y = torch.empty_like(x)
+    BLOCK = 1024
+    kernel[(x.numel() // BLOCK, )](x, y, BLOCK=BLOCK)
+
+    y_ref = torch.tanh(x.float()).to(torch.bfloat16)
+    # Allow one BF16 ulp of difference from FP32 tanh followed by round-to-nearest-even.
+    torch.testing.assert_close(y, y_ref, rtol=2**-7, atol=0, equal_nan=True)
 
 
 def test_libdevice_rename(device):

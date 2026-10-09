@@ -2941,6 +2941,55 @@ def test_math_fast_expf():
     torch.testing.assert_close(y, torch.exp(x), atol=1e-5, rtol=1e-4)
 
 
+@gluon.jit
+def tanh_bf16_kernel(x_ptr, y_ptr, BLOCK: ttgl.constexpr, layout: ttgl.constexpr):
+    offs = ttgl.program_id(0) * BLOCK + ttgl.arange(0, BLOCK, layout=layout)
+    ttgl.store(y_ptr + offs, libdevice.tanh(ttgl.load(x_ptr + offs)))
+
+
+@pytest.mark.skipif(not is_hip(), reason="BF16 libdevice.tanh is only provided by the HIP backend")
+@pytest.mark.parametrize("size_per_thread", [1, 2])
+def test_math_tanh_bf16(size_per_thread):
+    num_warps = 4
+    layout = ttgl.BlockedLayout([size_per_thread], [THREADS_PER_WARP], [num_warps], [0])
+    BLOCK = size_per_thread * THREADS_PER_WARP * num_warps
+
+    # Every BF16 bit pattern, including zeros, subnormals, infinities and NaNs.
+    x = torch.arange(-2**15, 2**15, dtype=torch.int32, device="cuda").to(torch.int16).view(torch.bfloat16)
+    y = torch.empty_like(x)
+    tanh_bf16_kernel[(x.numel() // BLOCK, )](x, y, BLOCK, layout, num_warps=num_warps)
+
+    y_ref = torch.tanh(x.float()).to(torch.bfloat16)
+    # Allow one BF16 ulp of difference from FP32 tanh followed by round-to-nearest-even.
+    torch.testing.assert_close(y, y_ref, rtol=2**-7, atol=0, equal_nan=True)
+
+
+@pytest.mark.parametrize("target, native", [(GPUTarget("hip", "gfx1250", 32), True),
+                                            (GPUTarget("hip", "gfx950", 64), False),
+                                            (GPUTarget("hip", "gfx942", 64), False)])
+@pytest.mark.parametrize("size_per_thread", [1, 2])
+def test_math_tanh_bf16_compile_amd(target, native, size_per_thread):
+    num_warps = 4
+    BLOCK = size_per_thread * target.warp_size * num_warps
+    source = gluon.GluonASTSource(
+        tanh_bf16_kernel,
+        signature={"x_ptr": "*bf16", "y_ptr": "*bf16", "BLOCK": "constexpr", "layout": "constexpr"},
+        constexprs={
+            "BLOCK": BLOCK, "layout": ttgl.BlockedLayout([size_per_thread], [target.warp_size], [num_warps], [0])
+        },
+        attrs={(0, ): [["tt.divisibility", 16]], (1, ): [["tt.divisibility", 16]]},
+    )
+    compiled = triton.compile(source, target=target, options={"num_warps": num_warps})
+    assert 'symbol = "__triton_hip_tanh_bf16"' in compiled.asm["ttgir"]
+    asm = compiled.asm["amdgcn"]
+    assert "__triton_hip_tanh_bf16" not in asm
+    if native:
+        assert asm.count("v_tanh_bf16") == size_per_thread
+        assert "v_tanh_f32" not in asm
+    else:
+        assert "v_tanh_bf16" not in asm
+
+
 def test_math_fast_dividef():
 
     @gluon.jit
