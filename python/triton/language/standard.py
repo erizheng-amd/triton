@@ -209,11 +209,16 @@ def max(input, axis=None, return_indices=False, return_indices_tie_break_left=Tr
     else:
         if core.constexpr(input.dtype.primitive_bitwidth) < core.constexpr(32):
             if core.constexpr(input.dtype.is_floating()):
-                input = input.to(core.float32)
+                if core.constexpr(input.dtype.is_fp8()):
+                    input = input.to(core.float32)
             else:
                 assert input.dtype.is_int(), "Expecting input to be integer type"
                 input = input.to(core.int32)
-        return core.reduce(input, axis, _elementwise_max, keep_dims=keep_dims)
+        result = core.reduce(input, axis, _elementwise_max, keep_dims=keep_dims)
+        if core.constexpr(result.dtype.is_bf16() or result.dtype.is_fp16()):
+            # The maximum is one of the inputs, so upcasting after the reduction is exact.
+            result = result.to(core.float32)
+        return result
 
 
 @core._tensor_member_fn
@@ -267,11 +272,16 @@ def min(input, axis=None, return_indices=False, return_indices_tie_break_left=Tr
     else:
         if core.constexpr(input.dtype.primitive_bitwidth) < 32:
             if core.constexpr(input.dtype.is_floating()):
-                input = input.to(core.float32)
+                if core.constexpr(input.dtype.is_fp8()):
+                    input = input.to(core.float32)
             else:
                 assert input.dtype.is_int(), "Expecting input to be integer type"
                 input = input.to(core.int32)
-        return core.reduce(input, axis, _elementwise_min, keep_dims=keep_dims)
+        result = core.reduce(input, axis, _elementwise_min, keep_dims=keep_dims)
+        if core.constexpr(result.dtype.is_bf16() or result.dtype.is_fp16()):
+            # The minimum is one of the inputs, so upcasting after the reduction is exact.
+            result = result.to(core.float32)
+        return result
 
 
 @core._tensor_member_fn
