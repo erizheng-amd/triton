@@ -218,6 +218,68 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.thr
     %0 = arith.maxnumf %arg0, %arg1 : tensor<64xf32, #blocked>
     tt.return %0 : tensor<64xf32, #blocked>
   }
+
+  // GFX1250-LABEL: @bf16_mulf_bf16
+  tt.func @bf16_mulf_bf16(%arg0: tensor<64xbf16, #blocked>, %arg1: tensor<64xbf16, #blocked>) -> tensor<64xbf16, #blocked> {
+    // GFX1250-NOT: llvm.fmul {{.*}} : f32
+    // GFX1250: llvm.fmul {{.*}} : vector<2xbf16>
+    %0 = arith.mulf %arg0, %arg1 : tensor<64xbf16, #blocked>
+    tt.return %0 : tensor<64xbf16, #blocked>
+  }
+
+  // Bias add, SiLU computed in FP32, multiply by up, scale and residual add.
+  // GFX1250-LABEL: @bf16_epilogue
+  tt.func @bf16_epilogue(%acc: tensor<64xf32, #blocked>, %bias: tensor<64xbf16, #blocked>, %up: tensor<64xbf16, #blocked>, %res: tensor<64xbf16, #blocked>) -> tensor<64xbf16, #blocked> {
+    // GFX1250: llvm.fptrunc {{.*}} : vector<2xf32> to vector<2xbf16>
+    // GFX1250: llvm.fadd {{.*}} : vector<2xbf16>
+    // GFX1250: llvm.call @llvm.exp2.f32
+    // GFX1250: llvm.fdiv {{.*}} : f32
+    // GFX1250: llvm.fptrunc {{.*}} : vector<2xf32> to vector<2xbf16>
+    // GFX1250-NOT: : f32
+    // GFX1250: llvm.fmul {{.*}} : vector<2xbf16>
+    // GFX1250-NOT: : f32
+    // GFX1250: llvm.fmul {{.*}} : vector<2xbf16>
+    // GFX1250-NOT: : f32
+    // GFX1250: llvm.fadd {{.*}} : vector<2xbf16>
+    // GFX1250: llvm.return
+    %half = arith.constant dense<5.000000e-01> : tensor<64xbf16, #blocked>
+    %one = arith.constant dense<1.000000e+00> : tensor<64xf32, #blocked>
+    %0 = arith.truncf %acc : tensor<64xf32, #blocked> to tensor<64xbf16, #blocked>
+    %1 = arith.addf %0, %bias : tensor<64xbf16, #blocked>
+    %2 = arith.extf %1 : tensor<64xbf16, #blocked> to tensor<64xf32, #blocked>
+    %3 = arith.negf %2 : tensor<64xf32, #blocked>
+    %4 = math.exp %3 : tensor<64xf32, #blocked>
+    %5 = arith.addf %4, %one : tensor<64xf32, #blocked>
+    %6 = arith.divf %2, %5 : tensor<64xf32, #blocked>
+    %7 = arith.truncf %6 : tensor<64xf32, #blocked> to tensor<64xbf16, #blocked>
+    %8 = arith.mulf %7, %up : tensor<64xbf16, #blocked>
+    %9 = arith.mulf %8, %half : tensor<64xbf16, #blocked>
+    %10 = arith.addf %9, %res : tensor<64xbf16, #blocked>
+    tt.return %10 : tensor<64xbf16, #blocked>
+  }
+}
+
+// -----
+
+// A single BF16 value per thread stays on FP32: the scalar packed-BF16 form
+// miscompiles inline constants on gfx1250 (LCOMPILER-2879).
+#blocked = #ttg.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.threads-per-warp" = 32 : i32} {
+  // GFX1250-LABEL: @bf16_single_value_arith
+  tt.func @bf16_single_value_arith(%arg0: tensor<32xbf16, #blocked>, %arg1: tensor<32xbf16, #blocked>) -> tensor<32xbf16, #blocked> {
+    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
+    // GFX1250: llvm.fadd {{.*}} : f32
+    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
+    // GFX1250: llvm.fsub {{.*}} : f32
+    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
+    // GFX1250: llvm.fmul {{.*}} : f32
+    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
+    // GFX1250: llvm.return
+    %0 = arith.addf %arg0, %arg1 : tensor<32xbf16, #blocked>
+    %1 = arith.subf %0, %arg1 : tensor<32xbf16, #blocked>
+    %2 = arith.mulf %1, %arg1 : tensor<32xbf16, #blocked>
+    tt.return %2 : tensor<32xbf16, #blocked>
+  }
 }
 
 // -----

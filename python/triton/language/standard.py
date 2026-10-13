@@ -209,13 +209,15 @@ def max(input, axis=None, return_indices=False, return_indices_tie_break_left=Tr
     else:
         if core.constexpr(input.dtype.primitive_bitwidth) < core.constexpr(32):
             if core.constexpr(input.dtype.is_floating()):
-                if core.constexpr(input.dtype.is_fp8()):
+                # BF16 stays on FP32: scalar BF16 max with an inline constant is
+                # miscompiled on gfx1250 (LCOMPILER-2879).
+                if core.constexpr(input.dtype.is_fp8() or input.dtype.is_bf16()):
                     input = input.to(core.float32)
             else:
                 assert input.dtype.is_int(), "Expecting input to be integer type"
                 input = input.to(core.int32)
         result = core.reduce(input, axis, _elementwise_max, keep_dims=keep_dims)
-        if core.constexpr(result.dtype.is_bf16() or result.dtype.is_fp16()):
+        if core.constexpr(result.dtype.is_fp16()):
             # The maximum is one of the inputs, so upcasting after the reduction is exact.
             result = result.to(core.float32)
         return result
@@ -272,13 +274,15 @@ def min(input, axis=None, return_indices=False, return_indices_tie_break_left=Tr
     else:
         if core.constexpr(input.dtype.primitive_bitwidth) < 32:
             if core.constexpr(input.dtype.is_floating()):
-                if core.constexpr(input.dtype.is_fp8()):
+                # BF16 stays on FP32: scalar BF16 min with an inline constant is
+                # miscompiled on gfx1250 (LCOMPILER-2879).
+                if core.constexpr(input.dtype.is_fp8() or input.dtype.is_bf16()):
                     input = input.to(core.float32)
             else:
                 assert input.dtype.is_int(), "Expecting input to be integer type"
                 input = input.to(core.int32)
         result = core.reduce(input, axis, _elementwise_min, keep_dims=keep_dims)
-        if core.constexpr(result.dtype.is_bf16() or result.dtype.is_fp16()):
+        if core.constexpr(result.dtype.is_fp16()):
             # The minimum is one of the inputs, so upcasting after the reduction is exact.
             result = result.to(core.float32)
         return result
