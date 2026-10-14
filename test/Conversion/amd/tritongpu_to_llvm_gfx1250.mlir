@@ -261,19 +261,17 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.thr
 
 // -----
 
-// A single BF16 value per thread stays on FP32: the scalar packed-BF16 form
-// miscompiles inline constants on gfx1250 (LCOMPILER-2879).
 #blocked = #ttg.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
 module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.threads-per-warp" = 32 : i32} {
   // GFX1250-LABEL: @bf16_single_value_arith
   tt.func @bf16_single_value_arith(%arg0: tensor<32xbf16, #blocked>, %arg1: tensor<32xbf16, #blocked>) -> tensor<32xbf16, #blocked> {
-    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
-    // GFX1250: llvm.fadd {{.*}} : f32
-    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
-    // GFX1250: llvm.fsub {{.*}} : f32
-    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
-    // GFX1250: llvm.fmul {{.*}} : f32
-    // GFX1250-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
+    // GFX1250-NOT: : f32
+    // GFX1250: llvm.fadd {{.*}} : bf16
+    // GFX1250-NOT: : f32
+    // GFX1250: llvm.fsub {{.*}} : bf16
+    // GFX1250-NOT: : f32
+    // GFX1250: llvm.fmul {{.*}} : bf16
+    // GFX1250-NOT: : f32
     // GFX1250: llvm.return
     %0 = arith.addf %arg0, %arg1 : tensor<32xbf16, #blocked>
     %1 = arith.subf %0, %arg1 : tensor<32xbf16, #blocked>

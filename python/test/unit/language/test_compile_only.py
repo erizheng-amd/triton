@@ -482,8 +482,9 @@ def test_compile_only_tanh_bf16_hip(arch, warp_size, native):
         assert not re.search(r"v_tanh_bf16", asm)
 
 
+@pytest.mark.parametrize("dtype, native_op", [("bf16", r"v_pk_{op}_num_bf16"), ("fp16", r"v_(pk_)?{op}_num_f16")])
 @pytest.mark.parametrize("op", ["max", "min"])
-def test_compile_only_fp16_max_min_no_promotion_gfx1250(op):
+def test_compile_only_16bit_max_min_no_promotion_gfx1250(dtype, native_op, op):
 
     @triton.jit
     def reduce_kernel(src, dst, IS_MAX: tl.constexpr):
@@ -495,14 +496,15 @@ def test_compile_only_fp16_max_min_no_promotion_gfx1250(op):
         tl.static_assert(m.dtype == tl.float32)
         tl.store(dst, m)
 
-    src = ASTSource(fn=reduce_kernel, signature={"src": "*fp16", "dst": "*fp32", "IS_MAX": "constexpr"},
+    src = ASTSource(fn=reduce_kernel, signature={"src": f"*{dtype}", "dst": "*fp32", "IS_MAX": "constexpr"},
                     constexprs={"IS_MAX": op == "max"})
     compiled = triton.compile(src, target=GPUTarget("hip", "gfx1250", 32))
     ttir = compiled.asm["ttir"]
-    assert re.search(rf"arith\.{op}numf %\S+, %\S+ : f16\b", ttir)
-    assert not re.search(r"arith\.extf %\S+ : tensor<128xf16", ttir)
+    elem_ty = {"bf16": "bf16", "fp16": "f16"}[dtype]
+    assert re.search(rf"arith\.{op}numf %\S+, %\S+ : {elem_ty}\b", ttir)
+    assert not re.search(rf"arith\.extf %\S+ : tensor<128x{elem_ty}", ttir)
     asm = compiled.asm["amdgcn"]
-    assert re.search(rf"v_(pk_)?{op}_num_f16", asm)
+    assert re.search(native_op.format(op=op), asm)
     assert not re.search(rf"v_{op}_num_f32", asm)
 
 

@@ -53,6 +53,13 @@ struct PackedArithOpConversion
                                    ConversionPatternRewriter &rewriter,
                                    Type elemTy, MultipleOperandsRange operands,
                                    Location loc) const {
+    if constexpr (std::is_same_v<LLVMOp, LLVM::FAddOp> ||
+                  std::is_same_v<LLVMOp, LLVM::FSubOp> ||
+                  std::is_same_v<LLVMOp, LLVM::FMulOp>) {
+      if (operands.size() == 1 && elemTy.isBF16())
+        return {LLVMOp::create(rewriter, loc, elemTy, operands[0][0],
+                               operands[0][1])};
+    }
     if (operands.size() < 2 || !(elemTy.isF32() || elemTy.isBF16()))
       return {};
     if constexpr (std::is_same_v<LLVMOp, LLVM::MaxNumOp> ||
