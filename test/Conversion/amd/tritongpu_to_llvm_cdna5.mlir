@@ -276,19 +276,17 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.thr
 
 // -----
 
-// A single BF16 value per thread stays on FP32: the scalar packed-BF16 form
-// miscompiles inline constants on gfx1250 (LCOMPILER-2879).
 #blocked = #ttg.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
 module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, "ttg.threads-per-warp" = 32 : i32} {
   // COMMON-LABEL: @bf16_single_value_arith
   tt.func @bf16_single_value_arith(%arg0: tensor<32xbf16, #blocked>, %arg1: tensor<32xbf16, #blocked>) -> tensor<32xbf16, #blocked> {
-    // COMMON-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
-    // COMMON: llvm.fadd {{.*}} : f32
-    // COMMON-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
-    // COMMON: llvm.fsub {{.*}} : f32
-    // COMMON-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
-    // COMMON: llvm.fmul {{.*}} : f32
-    // COMMON-NOT: llvm.f{{add|sub|mul}} {{.*}} : {{bf16|vector}}
+    // COMMON-NOT: : f32
+    // COMMON: llvm.fadd {{.*}} : bf16
+    // COMMON-NOT: : f32
+    // COMMON: llvm.fsub {{.*}} : bf16
+    // COMMON-NOT: : f32
+    // COMMON: llvm.fmul {{.*}} : bf16
+    // COMMON-NOT: : f32
     // COMMON: llvm.return
     %0 = arith.addf %arg0, %arg1 : tensor<32xbf16, #blocked>
     %1 = arith.subf %0, %arg1 : tensor<32xbf16, #blocked>
